@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+ <meta charset="utf-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1">
+ <title>Heart AR — Digital Health Practical</title>
+ <style>
+   :root { color-scheme: dark; font-family: system-ui, -apple-system, Segoe UI, sans-serif; }
+   * { box-sizing: border-box; }
+   body { margin: 0; background: #101827; color: #f7f8fb; }
+   header { padding: 16px 20px; background: #172337; border-bottom: 1px solid #34445c; }
+   h1 { margin: 0 0 5px; font-size: 1.25rem; }
+   header p { margin: 0; color: #c5d0df; font-size: .92rem; }
+   main { max-width: 900px; margin: 0 auto; padding: 16px; }
+   #ar-container { width: 100%; min-height: 60vh; background: #05080e; border-radius: 14px; overflow: hidden; position: relative; }
+   #ar-container video { width: 100%; height: 100%; object-fit: cover; }
+   .panel { margin-top: 14px; padding: 14px; background: #172337; border: 1px solid #34445c; border-radius: 12px; }
+   #status { color: #a9e4c2; font-weight: 600; }
+   button { border: 0; border-radius: 9px; padding: 10px 14px; margin: 8px 8px 0 0; cursor: pointer; background: #5b8def; color: white; font-weight: 650; }
+   button.secondary { background: #34445c; }
+   small, .muted { color: #bdc9d8; }
+   ol { padding-left: 22px; line-height: 1.55; }
+   a { color: #9fc1ff; }
+   .note { font-size: .9rem; line-height: 1.5; }
+ </style>
+</head>
+<body>
+<header>
+ <h1>❤️ Heart AR — Interactive Anatomy</h1>
+ <p>Point your camera at the printed target to view a simple 3D heart.</p>
+</header>
+<main>
+ <div id="ar-container"></div>
+ <div class="panel">
+   <div id="status">Ready. Press Start AR and allow camera access.</div>
+   <button id="start">Start AR</button>
+   <button id="stop" class="secondary" disabled>Stop camera</button>
+   <button id="reset" class="secondary">Reset heart</button>
+   <p class="note">When the target image is recognized, a stylized 3D heart appears above it. Move the target or camera to view it from different angles.</p>
+ </div>
+ <div class="panel">
+   <strong>Practical steps</strong>
+   <ol>
+     <li>Compile <code>assets/heart-target.svg</code> using the MindAR Image Target Compiler.</li>
+     <li>Save the downloaded file as <code>targets.mind</code> beside <code>index.html</code>.</li>
+     <li>Run this folder from localhost or HTTPS, then open this page in Chrome, Edge or Safari.</li>
+     <li>Press Start AR and point the camera at the printed target.</li>
+   </ol>
+   <p class="note"><strong>Browser permissions:</strong> camera access generally requires localhost or HTTPS. On a phone, use HTTPS. The separate 3D heart model is stored in assets/heart.glb.</p>
+ </div>
+</main>
+
+
+<script type="importmap">
+{
+ "imports": {
+   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+   "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+   "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+ }
+}
+</script>
+
+
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { MindARThree } from "mindar-image-three";
+
+
+const status = document.getElementById("status");
+const startBtn = document.getElementById("start");
+const stopBtn = document.getElementById("stop");
+const resetBtn = document.getElementById("reset");
+
+
+let mindar = null;
+let heart = null;
+let running = false;
+let animationFrame = null;
+
+
+async function startAR() {
+ if (running) return;
+
+
+ try {
+   status.textContent = "Loading 3D heart model…";
+   startBtn.disabled = true;
+
+
+   // Load the GLB first so model-loading errors are reported separately.
+   const loader = new GLTFLoader();
+   const gltf = await loader.loadAsync("./assets/heart.glb");
+   heart = gltf.scene;
+   heart.scale.setScalar(0.45);
+   heart.position.set(0, 0, 0.12);
+
+
+   status.textContent = "Starting camera…";
+   mindar = new MindARThree({
+     container: document.querySelector("#ar-container"),
+     imageTargetSrc: "./targets.mind",
+     maxTrack: 1
+   });
+
+
+   const { renderer, scene, camera } = mindar;
+   scene.add(new THREE.HemisphereLight(0xffffff, 0x667080, 1.8));
+
+
+   const keyLight = new THREE.DirectionalLight(0xffffff, 2);
+   keyLight.position.set(1, 2, 3);
+   scene.add(keyLight);
+
+
+   const fillLight = new THREE.DirectionalLight(0xffffff, 0.8);
+   fillLight.position.set(-2, 0, 1);
+   scene.add(fillLight);
+
+
+   const anchor = mindar.addAnchor(0);
+   anchor.group.add(heart);
+
+
+   anchor.onTargetFound = () => {
+     status.textContent = "Target found — 3D heart displayed.";
+   };
+   anchor.onTargetLost = () => {
+     status.textContent = "Target lost — point the camera at the printed target.";
+   };
+
+
+   await mindar.start();
+   running = true;
+   stopBtn.disabled = false;
+   status.textContent = "Camera running. Point it at the heart target image.";
+
+
+   renderer.setAnimationLoop(() => {
+     if (heart) heart.rotation.y += 0.003;
+     renderer.render(scene, camera);
+   });
+ } catch (error) {
+   console.error("Heart AR startup error:", error);
+   const message = error?.message || String(error);
+   status.textContent =
+     "Could not start AR: " + message +
+     ". Check targets.mind, camera permission, and internet access.";
+   startBtn.disabled = false;
+   stopBtn.disabled = true;
+   if (mindar) {
+     try { await mindar.stop(); } catch (_) {}
+     mindar = null;
+   }
+   running = false;
+ }
+}
+
+
+async function stopAR() {
+ if (!mindar || !running) return;
+ try {
+   mindar.renderer.setAnimationLoop(null);
+   await mindar.stop();
+ } catch (error) {
+   console.warn("Stop camera warning:", error);
+ }
+ mindar = null;
+ running = false;
+ startBtn.disabled = false;
+ stopBtn.disabled = true;
+ status.textContent = "Camera stopped.";
+}
+
+
+startBtn.addEventListener("click", startAR);
+stopBtn.addEventListener("click", stopAR);
+resetBtn.addEventListener("click", () => {
+ if (heart) heart.rotation.set(0, 0, 0);
+ status.textContent = running
+   ? "Heart rotation reset. Point the camera at the target."
+   : "Heart reset. Press Start AR.";
+});
+
+
+window.addEventListener("beforeunload", () => {
+ if (mindar && running) mindar.stop();
+});
+</script>
+</body>
+</html>
+
+
+
